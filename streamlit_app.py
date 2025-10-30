@@ -1,49 +1,48 @@
-import streamlit as st
-import pandas as pd
+# app.py
 import os
+import json
+import time
 import requests
+import streamlit as st
 from datetime import datetime, timezone
 
-# ============== CONFIG ==============
-WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/9373a788-a97b-448b-b9ec-981d1da43ca6"
-TIMEOUT_SEC = 8
-SAVE_LOCAL_CSV = True
-LOCAL_CSV_NAME = "responses.csv"
-# ===================================
+# ================== CONFIG ==================
+WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"  # your n8n test webhook
+REQUEST_TIMEOUT = 8
+RETRIES = 3
+BACKOFF = 1.6  # exponential backoff factor
+# ============================================
 
-# --- Page setup ---
 st.set_page_config(
     page_title="نموذج طلب مشاركة البيانات - MOH Data Request Form",
     page_icon="📄",
     layout="centered"
 )
 
-# --- RTL Arabic Style ---
-st.markdown("""
-<style>
-body { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
-</style>
-""", unsafe_allow_html=True)
+# ---- RTL styling ----
+st.markdown(
+    "<style>body{direction:rtl;text-align:right;font-family:Tahoma,Arial,sans-serif}</style>",
+    unsafe_allow_html=True
+)
 
-# --- Read query parameters ---
+# ---- Query params helper (Streamlit new/old) ----
 def get_query_params():
     try:
-        return st.query_params          # Streamlit ≥ 1.30
+        return st.query_params        # ≥ 1.30
     except Exception:
         return st.experimental_get_query_params()
 
 qp = get_query_params()
 url_id = None
-if "id" in qp:                         # read ?id=YOUR_TRACKING_NUMBER
-    val = qp["id"]
-    url_id = val[0] if isinstance(val, list) else val
+if "id" in qp:
+    v = qp["id"]
+    url_id = v[0] if isinstance(v, list) else v
 
-# --- Header ---
+# ---- Header ----
 st.markdown("<h1 style='text-align:center;'>📄 نموذج طلب مشاركة البيانات</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
 st.write("---")
 
-# --- Show the tracking number if present ---
 if url_id:
     st.markdown(f"**رقم التتبع (ID):** `{url_id}`")
 else:
@@ -51,15 +50,15 @@ else:
 
 st.markdown("### الرجاء اختيار أحد الخيارات التالية:")
 
-# --- Form section ---
+# ---- Form ----
 with st.form("moh_form"):
     entered_id = st.text_input("رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
     agree = st.checkbox("✅ موافق")
     disagree = st.checkbox("❌ غير موافق")
-
     submitted = st.form_submit_button("📤 إرسال الطلب")
 
     if submitted:
+        # Validation
         if not entered_id.strip():
             st.warning("⚠️ الرجاء إدخال رقم التتبع (ID).")
         elif agree and disagree:
@@ -71,37 +70,30 @@ with st.form("moh_form"):
             ts = datetime.now(timezone.utc).isoformat()
 
             payload = {
-                "id": entered_id.strip(),    # your tracking number
-                "choice": choice,            # user selection
+                "id": entered_id.strip(),
+                "choice": choice,
                 "timestamp_utc": ts
             }
 
-            # (A) Save locally (optional)
-            if SAVE_LOCAL_CSV:
-                newrow = pd.DataFrame([payload])
-                if os.path.exists(LOCAL_CSV_NAME):
-                    old = pd.read_csv(LOCAL_CSV_NAME)
-                    df = pd.concat([old, newrow], ignore_index=True)
-                else:
-                    df = newrow
-                df.to_csv(LOCAL_CSV_NAME, index=False, encoding="utf-8-sig")
+            # POST with simple retries
+            ok, resp_text = False, ""
+            for i in range(RETRIES):
+                try:
+                    r = requests.post(WEBHOOK_URL, json=payload, timeout=REQUEST_TIMEOUT)
+                    ok, resp_text = r.ok, (r.text or "")
+                    if ok:
+                        break
+                except Exception as e:
+                    resp_text = str(e)
+                time.sleep(BACKOFF ** i)
 
-            # (B) Send to webhook
-            send_ok = True
-            send_msg = "تم إرسال الطلب بنجاح."
-            try:
-                r = requests.post(WEBHOOK_URL, json=payload, timeout=TIMEOUT_SEC)
-                if r.status_code >= 400:
-                    send_ok = False
-                    send_msg = f"تعذر الإرسال (HTTP {r.status_code})."
-            except Exception as e:
-                send_ok = False
-                send_msg = f"تعذر الإرسال: {e}"
-
-            if send_ok:
-                st.success(f"✅ {send_msg}\n\nرقم التتبع: `{payload['id']}` — الإختيار: **{choice}**")
+            if ok:
+                st.success(f"✅ تم إرسال الطلب بنجاح.\n\nرقم التتبع: `{payload['id']}` — الإختيار: **{choice}**")
+                if resp_text:
+                    st.caption(f"رد الخادم: {resp_text[:200]}")
             else:
-                st.error(f"❌ {send_msg}\n\nرقم التتبع: `{payload['id']}` — الإختيار: **{choice}**\n(تم الحفظ محليًا: {SAVE_LOCAL_CSV})")
+                st.error(f"❌ تعذر الإرسال إلى الخادم بعد عدة محاولات. الرجاء المحاولة لاحقاً.")
+                st.caption(f"التفاصيل: {resp_text[:200]}")
 
 st.write("---")
 st.caption("© 2025 وزارة الصحة - نظام طلب مشاركة البيانات")
