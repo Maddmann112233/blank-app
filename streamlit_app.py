@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timezone
 
 # ============== CONFIG ==============
-WEBHOOK_URL = ""  # ← put your n8n or API webhook here (leave empty if testing)
+WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/9373a788-a97b-448b-b9ec-981d1da43ca6"
 TIMEOUT_SEC = 8
 SAVE_LOCAL_CSV = True
 LOCAL_CSV_NAME = "responses.csv"
@@ -86,18 +86,17 @@ with st.form("moh_form"):
                     df = newrow
                 df.to_csv(LOCAL_CSV_NAME, index=False, encoding="utf-8-sig")
 
-            # (B) Send to webhook (optional)
+            # (B) Send to webhook
             send_ok = True
             send_msg = "تم إرسال الطلب بنجاح."
-            if WEBHOOK_URL:
-                try:
-                    r = requests.post(WEBHOOK_URL, json=payload, timeout=TIMEOUT_SEC)
-                    if r.status_code >= 400:
-                        send_ok = False
-                        send_msg = f"تعذر الإرسال (HTTP {r.status_code})."
-                except Exception as e:
+            try:
+                r = requests.post(WEBHOOK_URL, json=payload, timeout=TIMEOUT_SEC)
+                if r.status_code >= 400:
                     send_ok = False
-                    send_msg = f"تعذر الإرسال: {e}"
+                    send_msg = f"تعذر الإرسال (HTTP {r.status_code})."
+            except Exception as e:
+                send_ok = False
+                send_msg = f"تعذر الإرسال: {e}"
 
             if send_ok:
                 st.success(f"✅ {send_msg}\n\nرقم التتبع: `{payload['id']}` — الإختيار: **{choice}**")
