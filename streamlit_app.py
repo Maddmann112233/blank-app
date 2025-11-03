@@ -5,14 +5,13 @@ import requests
 import streamlit as st
 from datetime import datetime, timezone
 
-# ============== CONFIG ==============
-# ✅ Put your fallback webhook URL here
-# (used when ?resume= is missing in the link)
-WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"
+# ================== CONFIG ==================
+# Fallback webhook (used if neither resume param nor manual field is filled)
+DEFAULT_WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"
 REQUEST_TIMEOUT = 10
 RETRIES = 3
 BACKOFF = 1.6
-# ===================================
+# ============================================
 
 st.set_page_config(
     page_title="نموذج طلب مشاركة البيانات - MOH Data Request Form",
@@ -27,7 +26,7 @@ body { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif
 </style>
 """, unsafe_allow_html=True)
 
-# --- Helper to handle query params ---
+# --- Helper for query params ---
 def get_query_params():
     try:
         return st.query_params
@@ -46,7 +45,7 @@ def qp_get_one(name: str):
 url_id = qp_get_one("id")
 resume_param = qp_get_one("resume") or qp_get_one("resumeUrl")
 
-# Decode if provided
+# Decode resume URL if present
 resume_url = None
 if resume_param:
     try:
@@ -61,26 +60,27 @@ st.markdown("<h1 style='text-align:center;'>📄 نموذج طلب مشاركة 
 st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
 st.write("---")
 
-# --- Information / Status ---
+# --- Context info ---
 if url_id:
     st.markdown(f"**رقم التتبع (ID):** `{url_id}`")
 else:
     st.info("لا يوجد رقم تتبع في الرابط. يمكنك إدخاله يدوياً في النموذج أدناه.")
 
 if resume_url:
-    st.caption("سيتم إرسال الرد مباشرة إلى n8n عبر رابط الاستئناف (resumeUrl).")
-elif WEBHOOK_URL:
-    st.caption("لن يتم تمرير resumeUrl — سيتم الإرسال إلى عنوان webhook الثابت في الكود.")
+    st.caption("سيتم الإرسال تلقائياً إلى رابط الاستئناف (resumeUrl) من n8n إن لم تُدخل رابطاً يدوياً.")
 else:
-    st.warning("⚠️ لا يوجد resumeUrl ولا عنوان webhook محدد في الكود. لن يتم الإرسال.")
+    st.caption("يمكنك إدخال رابط الويب هوك أو رابط الاستئناف يدوياً أدناه.")
 
-st.write("### الرجاء اختيار أحد الخيارات التالية:")
+st.write("### الرجاء تعبئة الحقول التالية:")
 
 # --- Form ---
 with st.form("moh_form"):
-    entered_id = st.text_input("رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
+    entered_id = st.text_input("🔹 رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
+    manual_webhook = st.text_input("🔹 رابط الويب هوك / الاستئناف (اختياري)", value=resume_url or "", 
+                                   help="ألصق هنا رابط الاستئناف ($execution.resumeUrl) أو رابط الويب هوك الثابت.")
     agree = st.checkbox("✅ موافق")
     disagree = st.checkbox("❌ غير موافق")
+
     submitted = st.form_submit_button("📤 إرسال الطلب")
 
     if submitted:
@@ -101,11 +101,11 @@ with st.form("moh_form"):
                 "timestamp_utc": ts
             }
 
-            # Pick target: dynamic resume > manual webhook
-            target_url = resume_url or WEBHOOK_URL
+            # Determine where to send
+            target_url = manual_webhook.strip() or resume_url or DEFAULT_WEBHOOK_URL
 
             if not target_url:
-                st.error("❌ لم يتم تحديد أي رابط للإرسال.")
+                st.error("❌ لم يتم تحديد أي رابط للإرسال. الرجاء لصق رابط الويب هوك أو الاستئناف.")
             else:
                 ok, resp_text = False, ""
                 for i in range(RETRIES):
