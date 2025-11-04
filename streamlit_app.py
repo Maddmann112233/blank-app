@@ -1,4 +1,3 @@
-import os
 import time
 import urllib.parse
 import requests
@@ -25,7 +24,7 @@ body { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif
 </style>
 """, unsafe_allow_html=True)
 
-# --- Helper for query params ---
+# --- Helpers for query params ---
 def get_query_params():
     try:
         return st.query_params
@@ -33,17 +32,14 @@ def get_query_params():
         return st.experimental_get_query_params()
 
 qp = get_query_params()
-
 def qp_get_one(name: str):
     if name not in qp:
         return None
-    val = qp[name]
-    return val[0] if isinstance(val, list) else val
+    v = qp[name]
+    return v[0] if isinstance(v, list) else v
 
-# --- Read from URL ---
+# Read resume URL (optional)
 resume_param = qp_get_one("resume") or qp_get_one("resumeUrl")
-
-# Decode resume URL if present
 resume_url = None
 if resume_param:
     try:
@@ -53,7 +49,7 @@ if resume_param:
     except Exception:
         resume_url = resume_param
 
-# --- Page Header ---
+# --- Header ---
 st.markdown("<h1 style='text-align:center;'>نموذج طلب مشاركة البيانات</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
 st.write("---")
@@ -72,12 +68,17 @@ with st.form("moh_form"):
         value=resume_url or "",
         help="ألصق هنا رابط الاستئناف ($execution.resumeUrl) أو رابط الويب هوك الثابت."
     )
+
     agree = st.checkbox("موافق")
     disagree = st.checkbox("غير موافق")
 
-    reason = ""
-    if disagree and not agree:
-        reason = st.text_area("سبب الرفض", placeholder="يرجى توضيح سبب الرفض هنا...")
+    # Always render the reason box; enable only if (disagree and not agree)
+    show_enabled = (disagree and not agree)
+    reason = st.text_area(
+        "سبب الرفض",
+        placeholder="يرجى توضيح سبب الرفض هنا...",
+        disabled=not show_enabled
+    )
 
     submitted = st.form_submit_button("إرسال الطلب")
 
@@ -97,12 +98,11 @@ with st.form("moh_form"):
                 "choice": choice,
                 "timestamp_utc": ts
             }
-
             if disagree:
                 payload["reason_for_refusal"] = reason.strip()
 
-            # Determine where to send
-            target_url = manual_webhook.strip() or resume_url or DEFAULT_WEBHOOK_URL
+            # Determine target URL priority: manual field > resume param > default
+            target_url = (manual_webhook or "").strip() or resume_url or DEFAULT_WEBHOOK_URL
 
             if not target_url:
                 st.error("لم يتم تحديد أي رابط للإرسال. الرجاء لصق رابط الويب هوك أو الاستئناف.")
