@@ -6,7 +6,6 @@ import streamlit as st
 from datetime import datetime, timezone
 
 # ================== CONFIG ==================
-# Fallback webhook (used if neither resume param nor manual field is filled)
 DEFAULT_WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"
 REQUEST_TIMEOUT = 10
 RETRIES = 3
@@ -42,7 +41,6 @@ def qp_get_one(name: str):
     return val[0] if isinstance(val, list) else val
 
 # --- Read from URL ---
-url_id = qp_get_one("id")
 resume_param = qp_get_one("resume") or qp_get_one("resumeUrl")
 
 # Decode resume URL if present
@@ -60,12 +58,6 @@ st.markdown("<h1 style='text-align:center;'>نموذج طلب مشاركة ال�
 st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
 st.write("---")
 
-# --- Context info ---
-if url_id:
-    st.markdown(f"**رقم التتبع (ID):** `{url_id}`")
-else:
-    st.info("لا يوجد رقم تتبع في الرابط. يمكنك إدخاله يدوياً في النموذج أدناه.")
-
 if resume_url:
     st.caption("سيتم الإرسال تلقائياً إلى رابط الاستئناف (resumeUrl) من n8n إن لم تُدخل رابطاً يدوياً.")
 else:
@@ -75,7 +67,6 @@ st.write("### الرجاء تعبئة الحقول التالية:")
 
 # --- Form ---
 with st.form("moh_form"):
-    entered_id = st.text_input("رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
     manual_webhook = st.text_input(
         "رابط الويب هوك / الاستئناف (اختياري)",
         value=resume_url or "",
@@ -88,9 +79,7 @@ with st.form("moh_form"):
 
     if submitted:
         # Validation
-        if not entered_id.strip():
-            st.warning("الرجاء إدخال رقم التتبع (ID).")
-        elif agree and disagree:
+        if agree and disagree:
             st.warning("لا يمكن اختيار الخيارين معاً.")
         elif not agree and not disagree:
             st.info("الرجاء اختيار أحد الخيارين قبل الإرسال.")
@@ -99,7 +88,6 @@ with st.form("moh_form"):
             ts = datetime.now(timezone.utc).isoformat()
 
             payload = {
-                "id": entered_id.strip(),
                 "choice": choice,
                 "timestamp_utc": ts
             }
@@ -122,7 +110,7 @@ with st.form("moh_form"):
                     time.sleep(BACKOFF ** i)
 
                 if ok:
-                    st.success(f"تم إرسال الطلب بنجاح.\n\nرقم التتبع: `{payload['id']}` — الإختيار: {choice}")
+                    st.success(f"تم إرسال الطلب بنجاح. تم اختيار: {choice}")
                     if resp_text:
                         st.caption(f"رد الخادم: {resp_text[:300]}")
                 else:
