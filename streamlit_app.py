@@ -75,6 +75,10 @@ with st.form("moh_form"):
     agree = st.checkbox("موافق")
     disagree = st.checkbox("غير موافق")
 
+    reason = ""
+    if disagree and not agree:
+        reason = st.text_area("سبب الرفض", placeholder="يرجى توضيح سبب الرفض هنا...")
+
     submitted = st.form_submit_button("إرسال الطلب")
 
     if submitted:
@@ -83,6 +87,8 @@ with st.form("moh_form"):
             st.warning("لا يمكن اختيار الخيارين معاً.")
         elif not agree and not disagree:
             st.info("الرجاء اختيار أحد الخيارين قبل الإرسال.")
+        elif disagree and not reason.strip():
+            st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
             choice = "موافق" if agree else "غير موافق"
             ts = datetime.now(timezone.utc).isoformat()
@@ -91,6 +97,9 @@ with st.form("moh_form"):
                 "choice": choice,
                 "timestamp_utc": ts
             }
+
+            if disagree:
+                payload["reason_for_refusal"] = reason.strip()
 
             # Determine where to send
             target_url = manual_webhook.strip() or resume_url or DEFAULT_WEBHOOK_URL
@@ -111,6 +120,8 @@ with st.form("moh_form"):
 
                 if ok:
                     st.success(f"تم إرسال الطلب بنجاح. تم اختيار: {choice}")
+                    if disagree:
+                        st.caption(f"سبب الرفض: {reason.strip()}")
                     if resp_text:
                         st.caption(f"رد الخادم: {resp_text[:300]}")
                 else:
