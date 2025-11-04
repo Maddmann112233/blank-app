@@ -56,7 +56,7 @@ if resume_param:
         resume_url = resume_param
 
 # --- Page Header ---
-st.markdown("<h1 style='text-align:center;'>📄 نموذج طلب مشاركة البيانات</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>نموذج طلب مشاركة البيانات</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
 st.write("---")
 
@@ -75,20 +75,23 @@ st.write("### الرجاء تعبئة الحقول التالية:")
 
 # --- Form ---
 with st.form("moh_form"):
-    entered_id = st.text_input("🔹 رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
-    manual_webhook = st.text_input("🔹 رابط الويب هوك / الاستئناف (اختياري)", value=resume_url or "", 
-                                   help="ألصق هنا رابط الاستئناف ($execution.resumeUrl) أو رابط الويب هوك الثابت.")
-    agree = st.checkbox("✅ موافق")
-    disagree = st.checkbox("❌ غير موافق")
+    entered_id = st.text_input("رقم التتبع (ID)", value=url_id or "", help="أدخل رقم التتبع إذا لم يكن في الرابط")
+    manual_webhook = st.text_input(
+        "رابط الويب هوك / الاستئناف (اختياري)",
+        value=resume_url or "",
+        help="ألصق هنا رابط الاستئناف ($execution.resumeUrl) أو رابط الويب هوك الثابت."
+    )
+    agree = st.checkbox("موافق")
+    disagree = st.checkbox("غير موافق")
 
-    submitted = st.form_submit_button("📤 إرسال الطلب")
+    submitted = st.form_submit_button("إرسال الطلب")
 
     if submitted:
         # Validation
         if not entered_id.strip():
-            st.warning("⚠️ الرجاء إدخال رقم التتبع (ID).")
+            st.warning("الرجاء إدخال رقم التتبع (ID).")
         elif agree and disagree:
-            st.warning("⚠️ لا يمكن اختيار الخيارين معاً.")
+            st.warning("لا يمكن اختيار الخيارين معاً.")
         elif not agree and not disagree:
             st.info("الرجاء اختيار أحد الخيارين قبل الإرسال.")
         else:
@@ -105,7 +108,7 @@ with st.form("moh_form"):
             target_url = manual_webhook.strip() or resume_url or DEFAULT_WEBHOOK_URL
 
             if not target_url:
-                st.error("❌ لم يتم تحديد أي رابط للإرسال. الرجاء لصق رابط الويب هوك أو الاستئناف.")
+                st.error("لم يتم تحديد أي رابط للإرسال. الرجاء لصق رابط الويب هوك أو الاستئناف.")
             else:
                 ok, resp_text = False, ""
                 for i in range(RETRIES):
@@ -119,11 +122,11 @@ with st.form("moh_form"):
                     time.sleep(BACKOFF ** i)
 
                 if ok:
-                    st.success(f"✅ تم إرسال الطلب بنجاح.\n\nرقم التتبع: `{payload['id']}` — الإختيار: **{choice}**")
+                    st.success(f"تم إرسال الطلب بنجاح.\n\nرقم التتبع: `{payload['id']}` — الإختيار: {choice}")
                     if resp_text:
                         st.caption(f"رد الخادم: {resp_text[:300]}")
                 else:
-                    st.error("❌ تعذر الإرسال إلى الخادم بعد عدة محاولات.")
+                    st.error("تعذر الإرسال إلى الخادم بعد عدة محاولات.")
                     if resp_text:
                         st.caption(f"التفاصيل: {resp_text[:300]}")
 
