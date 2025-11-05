@@ -20,7 +20,7 @@ WEBHOOK_COLUMN_WANTED = "authorize"
 ALLOWED_STATES = {"approved", "declined"}
 # ===========================================
 
-st.set_page_config(page_title="MOH Business Owner", layout="wide")
+st.set_page_config(page_title="MOH Admin", layout="wide")
 
 # ====== تنسيق عربي ======
 st.markdown("""
@@ -46,7 +46,7 @@ h1, h2, h3, h4 { text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h2>MOH Business Owner</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
+st.markdown('<h2>MOH Admin</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
 
 # ====== Google Sheets ======
 def _gspread_client():
@@ -78,7 +78,6 @@ def resolve_column(df: pd.DataFrame, wanted_lower: str, fallback_candidates=None
     يعيد الاسم الفعلي لعمود (كما في DataFrame) بمطابقة غير حساسة لحالة الأحرف.
     إذا قدمت قائمة candidates، سيتم قبول أي اسم منها (كلها يجب أن تكون بحروف صغيرة).
     """
-    # خريطة من lower -> original
     lower_map = {c.strip().lower(): c for c in df.columns}
     if fallback_candidates:
         for cand in fallback_candidates:
