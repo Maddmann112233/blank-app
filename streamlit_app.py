@@ -9,10 +9,15 @@ from google.oauth2.service_account import Credentials
 SPREADSHEET_ID = "1mtlFkp7yAMh8geFF1cfcyruYJhcafsetJktOhwTZz1Y"
 WORKSHEET_NAME = "Sheet1"
 
-ID_COLUMN_CANDIDATES = ["id", "ID", "Id", "request_id", "ticket_id"]
-STATE_COLUMN = "State"
-ALLOWED_STATES = {"Approved", "Declined"}     # الحالة المسموح بها فقط
-WEBHOOK_COLUMN = "Authorize"                  # <-- التغيير هنا
+# نقبل هذه الأسماء لعمود المعرّف (بحث غير حساس لحالة الأحرف)
+ID_COLUMN_CANDIDATES = ["id", "request_id", "ticket_id"]
+
+# أسماء الحقول الأخرى (غير حساسة لحالة الأحرف)
+STATE_COLUMN_WANTED = "state"
+WEBHOOK_COLUMN_WANTED = "authorize"
+
+# الحالتان المسموحتان
+ALLOWED_STATES = {"approved", "declined"}
 # ===========================================
 
 st.set_page_config(page_title="MOH Business Owner", layout="wide")
@@ -52,12 +57,13 @@ def _gspread_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)  # تقليل التخزين المؤقت لتحديث البيانات بسرعة
 def load_sheet(spreadsheet_id, worksheet_name) -> pd.DataFrame:
     gc = _gspread_client()
     ws = gc.open_by_key(spreadsheet_id).worksheet(worksheet_name)
     data = ws.get_all_records()
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    return df
 
 def is_valid_url(s: str) -> bool:
     s = (s or "").strip()
@@ -67,12 +73,42 @@ def is_valid_url(s: str) -> bool:
     except Exception:
         return False
 
+def resolve_column(df: pd.DataFrame, wanted_lower: str, fallback_candidates=None):
+    """
+    يعيد الاسم الفعلي لعمود (كما في DataFrame) بمطابقة غير حساسة لحالة الأحرف.
+    إذا قدمت قائمة candidates، سيتم قبول أي اسم منها (كلها يجب أن تكون بحروف صغيرة).
+    """
+    # خريطة من lower -> original
+    lower_map = {c.strip().lower(): c for c in df.columns}
+    if fallback_candidates:
+        for cand in fallback_candidates:
+            if cand in lower_map:
+                return lower_map[cand]
+        return None
+    return lower_map.get(wanted_lower)
+
 # ====== تحميل البيانات ======
 df = load_sheet(SPREADSHEET_ID, WORKSHEET_NAME)
 
-id_col = next((c for c in ID_COLUMN_CANDIDATES if c in df.columns), None)
+if df.empty:
+    st.error("ورقة العمل فارغة أو لم تُحمّل البيانات.")
+    st.stop()
+
+# تحديد عمود ID غير حساس لحالة الأحرف
+id_col = resolve_column(df, None, fallback_candidates=[c.lower() for c in ID_COLUMN_CANDIDATES])
 if not id_col:
-    st.error("لم يتم العثور على عمود يحتوي على المعرف (ID). عدّل القائمة ID_COLUMN_CANDIDATES أو اسم العمود في الشيت.")
+    st.error(f"لم يتم العثور على عمود المعرّف. تأكد من وجود أحد هذه الأعمدة: {ID_COLUMN_CANDIDATES}")
+    st.stop()
+
+# تحديد عمود الحالة وعمود الويب هوك بشكل غير حساس لحالة الأحرف
+state_col = resolve_column(df, STATE_COLUMN_WANTED)
+webhook_col = resolve_column(df, WEBHOOK_COLUMN_WANTED)
+
+if not state_col:
+    st.error(f"لم يتم العثور على عمود الحالة: {STATE_COLUMN_WANTED}")
+    st.stop()
+if not webhook_col:
+    st.error(f"لم يتم العثور على عمود الويب هوك: {WEBHOOK_COLUMN_WANTED}")
     st.stop()
 
 # ====== البحث برقم الطلب ======
@@ -82,13 +118,17 @@ with center:
     sid = st.text_input("أدخل رقم الطلب:", key="search_id_input")
     search_btn = st.button("بحث", use_container_width=True)
 
+# عند الضغط على بحث نخزّن القيمة ونحمّل نسخة حديثة من الشيت
 if search_btn:
     st.session_state.selected_id = (sid or "").strip()
+    st.cache_data.clear()  # نضمن تحديث القراءة في البحث التالي
+    df = load_sheet(SPREADSHEET_ID, WORKSHEET_NAME)
 
 selected_id = (st.session_state.get("selected_id") or "").strip()
 
 selected_row = None
 if selected_id:
+    # مطابقة ID بعد تنظيف المسافات وحساسية لحروف صغيرة
     mask = df[id_col].astype(str).str.strip().str.lower() == selected_id.lower()
     match = df[mask]
     if not match.empty:
@@ -101,23 +141,21 @@ if selected_id and selected_row is None:
     st.warning("لا توجد نتائج مطابقة لهذا الرقم.")
     st.stop()
 
-# ====== التحقق من الحالة ======
+# ====== التحقق ثم الواجهة ======
 if selected_row is not None:
-    if STATE_COLUMN not in selected_row.index:
-        st.error(f"لم يتم العثور على عمود الحالة '{STATE_COLUMN}'.")
+    # التحقق من الحالة
+    current_state = str(selected_row[state_col]).strip()
+    if current_state.lower() not in ALLOWED_STATES:
+        st.error(f"لا يمكن المتابعة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
         st.stop()
 
-    current_state = str(selected_row[STATE_COLUMN]).strip()
-    if current_state not in ALLOWED_STATES:
-        st.error(f"لا يمكن متابعة المعالجة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
-        st.stop()
-
-    webhook_url = str(selected_row.get(WEBHOOK_COLUMN, "")).strip()
+    # قراءة الويب هوك من عمود Authorize (غير حساس لحالة الأحرف)
+    webhook_url = str(selected_row[webhook_col]).strip()
     if not is_valid_url(webhook_url):
-        st.warning(f"تعذر العثور على رابط ويب هوك صالح في العمود '{WEBHOOK_COLUMN}'. لن يتم إرسال القرار.")
-        # نسمح بالاختيار لكن بدون إرسال فعلي
+        st.error(f"القيمة في عمود {webhook_col} ليست رابط ويب هوك صالحاً.")
+        st.stop()
 
-    # ====== واجهة القرار ======
+    # واجهة القرار فقط
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("### القرار")
 
@@ -150,17 +188,14 @@ if selected_row is not None:
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
             payload = {
-                "id": selected_id,
-                "decision": st.session_state.decision,         # "موافقة" أو "غير موافق"
-                "reason": st.session_state.reason.strip(),     # قد تكون فارغة
-                "state_checked": current_state,                # الحالة المعتمدة Approved / Declined
+                "id": selected_id,                       # من عمود ID
+                "decision": st.session_state.decision,   # "موافقة" أو "غير موافق"
+                "reason": st.session_state.reason.strip(),
+                "state_checked": current_state,          # الحالة في الشيت (Approved/Declined)
             }
-            if is_valid_url(webhook_url):
-                try:
-                    r = requests.post(webhook_url, json=payload, timeout=15)
-                    r.raise_for_status()
-                    st.success("✅ تم إرسال القرار بنجاح.")
-                except Exception as e:
-                    st.error(f"❌ تعذر إرسال القرار عبر الويب هوك: {e}")
-            else:
-                st.info("⚠️ لم يتم إرسال القرار لعدم توفر رابط ويب هوك صالح.")
+            try:
+                r = requests.post(webhook_url, json=payload, timeout=15)
+                r.raise_for_status()
+                st.success("تم إرسال القرار بنجاح.")
+            except Exception as e:
+                st.error(f"تعذر إرسال القرار عبر الويب هوك: {e}")
