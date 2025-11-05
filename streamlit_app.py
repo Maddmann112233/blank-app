@@ -10,12 +10,12 @@ REQUEST_TIMEOUT = 10
 RETRIES = 3
 BACKOFF = 1.6
 
-# NEW: Google Sheets config
-SPREADSHEET_ID = "1mtlFkp7yAMh8geFF1cfcyruYJhcafsetJktOhwTZz1Y"  # change if needed
-WORKSHEET_NAME = "Sheet1"                                        # change if needed
-ID_COLUMN = "id"                                                 # change if your ID column differs
-STATE_COLUMN = "State"                                           # must exist
-REQUIRED_STATE = "Approved"                                      # gate condition
+# Google Sheets config
+SPREADSHEET_ID = "1mtlFkp7yAMh8geFF1cfcyruYJhcafsetJktOhwTZz1Y"
+WORKSHEET_NAME = "Sheet1"
+ID_COLUMN = "id"
+STATE_COLUMN = "State"
+ALLOWED_STATES = ["Approved", "Declined"]  # ✅ now allows both
 # ============================================
 
 st.set_page_config(
@@ -60,7 +60,7 @@ if resume_param:
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from urllib.parse import urlparse  # NEW
+from urllib.parse import urlparse
 
 def _gspread_client():
     scopes = [
@@ -85,7 +85,7 @@ def find_row_by_id(df: pd.DataFrame, id_value: str) -> pd.Series | None:
     match = df[mask]
     return match.iloc[0] if not match.empty else None
 
-def is_valid_url(s: str) -> bool:  # NEW
+def is_valid_url(s: str) -> bool:
     s = (s or "").strip()
     try:
         u = urlparse(s)
@@ -108,13 +108,11 @@ st.write("### الرجاء تعبئة الحقول التالية:")
 
 # --- Form ---
 with st.form("moh_form"):
-    # ID input (kept)
     input_id = st.text_input("رقم الطلب (ID)")
 
     agree = st.checkbox("موافق")
     disagree = st.checkbox("غير موافق")
 
-    # Always render the reason box; enable only if (disagree and not agree)
     show_enabled = (disagree and not agree)
     reason = st.text_area(
         "سبب الرفض",
@@ -125,7 +123,6 @@ with st.form("moh_form"):
     submitted = st.form_submit_button("إرسال الطلب")
 
     if submitted:
-        # Validation (same as your original logic)
         if not input_id.strip():
             st.warning("يرجى إدخال رقم الطلب (ID).")
         elif agree and disagree:
@@ -135,37 +132,29 @@ with st.form("moh_form"):
         elif disagree and not reason.strip():
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
-            # ---------- Verify against Google Sheet before sending ----------
             df = load_sheet_df(SPREADSHEET_ID, WORKSHEET_NAME)
             row = find_row_by_id(df, input_id)
 
             if row is None:
                 st.error("لم يتم العثور على صف يطابق رقم الطلب المدخل.")
-            elif STATE_COLUMN not in row or str(row[STATE_COLUMN]).strip() != REQUIRED_STATE:
+            elif STATE_COLUMN not in row or str(row[STATE_COLUMN]).strip() not in ALLOWED_STATES:
                 current_state = str(row.get(STATE_COLUMN, "")).strip() if STATE_COLUMN in row else "غير معروف"
-                st.error(f"لا يمكن الإرسال. الحالة الحالية: {current_state} (المطلوب: {REQUIRED_STATE})")
+                st.error(f"لا يمكن الإرسال. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined)")
             else:
-                # Passed the State gate → proceed to send
                 choice = "موافق" if agree else "غير موافق"
                 ts = datetime.now(timezone.utc).isoformat()
-
-                # NEW: read "Authorize" column and include in payload
-                authorize_value = str(row.get("Authorize", "")).strip()  # NEW
+                authorize_value = str(row.get("Authorize", "")).strip()
 
                 payload = {
                     "choice": choice,
                     "timestamp_utc": ts,
                     "id": input_id.strip(),
-                    "authorize": authorize_value,  # NEW
+                    "authorize": authorize_value,
                 }
                 if disagree:
                     payload["reason_for_refusal"] = reason.strip()
 
-                # Determine target URL priority:
-                # 1) If "Authorize" cell is a valid URL, use it
-                # 2) Else use resume_url (if provided)
-                # 3) Else use DEFAULT_WEBHOOK_URL
-                if is_valid_url(authorize_value):  # NEW
+                if is_valid_url(authorize_value):
                     target_url = authorize_value
                 else:
                     target_url = resume_url or DEFAULT_WEBHOOK_URL
