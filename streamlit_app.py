@@ -168,7 +168,7 @@ if selected_row is not None:
         st.markdown('<div class="segmented">', unsafe_allow_html=True)
         st.session_state.decision = st.radio(
             "اختر القرار:",
-            ["موافقة", "غير موافق"],
+            ["موافق", "غير موافق"],
             horizontal=True,
             key="decision_radio_ar",
             index=0 if st.session_state.decision == "موافقة" else 1,
