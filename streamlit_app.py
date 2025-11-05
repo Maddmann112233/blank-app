@@ -1,67 +1,49 @@
-import time
-import urllib.parse
-import requests
+import pandas as pd
 import streamlit as st
-from datetime import datetime, timezone
+import gspread
+import requests
+from urllib.parse import urlparse
+from google.oauth2.service_account import Credentials
 
-# ================== CONFIG ==================
-DEFAULT_WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"  # kept, but no longer used if Authorize is required
-REQUEST_TIMEOUT = 10
-RETRIES = 3
-BACKOFF = 1.6
-
-# Google Sheets config
+# ================= الإعدادات =================
 SPREADSHEET_ID = "1mtlFkp7yAMh8geFF1cfcyruYJhcafsetJktOhwTZz1Y"
 WORKSHEET_NAME = "Sheet1"
-ID_COLUMN = "id"
+
+ID_COLUMN_CANDIDATES = ["id", "ID", "Id", "request_id", "ticket_id"]
 STATE_COLUMN = "State"
-ALLOWED_STATES = ["Approved", "Declined"]
-# ============================================
+ALLOWED_STATES = {"Approved", "Declined"}     # الحالة المسموح بها فقط
+WEBHOOK_COLUMN = "Authorize"                  # <-- التغيير هنا
+# ===========================================
 
-st.set_page_config(
-    page_title="نموذج طلب مشاركة البيانات - MOH Data Request Form",
-    page_icon="📄",
-    layout="centered"
-)
+st.set_page_config(page_title="MOH Business Owner", layout="wide")
 
-# --- RTL style ---
+# ====== تنسيق عربي ======
 st.markdown("""
 <style>
-body { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
+body, .stApp { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
+h1, h2, h3, h4 { text-align: center; }
+.stButton>button {
+  background-color:#0A66C2; color:#fff; font-weight:600;
+  border-radius:10px; height:42px; padding:0 18px; border:none;
+}
+.stTextInput>div>div>input { direction: rtl; text-align: center; font-size:16px; }
+.segmented .stRadio > div { display:flex; gap:8px; justify-content:center; }
+.segmented .stRadio label {
+  padding:10px 18px; border:1px solid #2a2f3a; border-radius:999px;
+  cursor:pointer; font-weight:700; user-select:none;
+}
+.segmented .stRadio input { display:none; }
+.segmented .stRadio label:hover { background:#19202a; }
+.segmented .stRadio [aria-checked="true"] + span {
+  background:#0A66C2; color:#fff; border-color:#0A66C2;
+}
+.block-container { padding-top: 24px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Helpers for query params ---
-def get_query_params():
-    try:
-        return st.query_params
-    except Exception:
-        return st.experimental_get_query_params()
+st.markdown('<h2>MOH Business Owner</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
 
-qp = get_query_params()
-def qp_get_one(name: str):
-    if name not in qp:
-        return None
-    v = qp[name]
-    return v[0] if isinstance(v, list) else v
-
-# Read resume URL (optional) — retained but no longer used as fallback
-resume_param = qp_get_one("resume") or qp_get_one("resumeUrl")
-resume_url = None
-if resume_param:
-    try:
-        resume_url = urllib.parse.unquote(resume_param)
-        if "%2F" in resume_url or "%3A" in resume_url:
-            resume_url = urllib.parse.unquote(resume_url)
-    except Exception:
-        resume_url = resume_param
-
-# ---------- Google Sheets helpers ----------
-import gspread
-from google.oauth2.service_account import Credentials
-import pandas as pd
-from urllib.parse import urlparse
-
+# ====== Google Sheets ======
 def _gspread_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -71,19 +53,11 @@ def _gspread_client():
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=60)
-def load_sheet_df(spreadsheet_id: str, worksheet_name: str) -> pd.DataFrame:
+def load_sheet(spreadsheet_id, worksheet_name) -> pd.DataFrame:
     gc = _gspread_client()
     ws = gc.open_by_key(spreadsheet_id).worksheet(worksheet_name)
-    rows = ws.get_all_records()
-    return pd.DataFrame(rows)
-
-@st.cache_data(ttl=30)
-def find_row_by_id(df: pd.DataFrame, id_value: str) -> pd.Series | None:
-    if df.empty or ID_COLUMN not in df.columns:
-        return None
-    mask = df[ID_COLUMN].astype(str).str.strip().str.lower() == str(id_value).strip().lower()
-    match = df[mask]
-    return match.iloc[0] if not match.empty else None
+    data = ws.get_all_records()
+    return pd.DataFrame(data)
 
 def is_valid_url(s: str) -> bool:
     s = (s or "").strip()
@@ -92,96 +66,101 @@ def is_valid_url(s: str) -> bool:
         return bool(u.scheme and u.netloc)
     except Exception:
         return False
-# -------------------------------------------------
 
-# --- Header ---
-st.markdown("<h1 style='text-align:center;'>نموذج طلب مشاركة البيانات</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_allow_html=True)
-st.write("---")
+# ====== تحميل البيانات ======
+df = load_sheet(SPREADSHEET_ID, WORKSHEET_NAME)
 
-if resume_url:
-    st.caption("سيتم تجاهل رابط الاستئناف إذا وُجد رابط صالح في عمود Authorize.")
-else:
-    st.caption("أدخل رقم الطلب (ID). سيتم استخدام رابط الويب هوك من عمود Authorize في ورقة Google.")
+id_col = next((c for c in ID_COLUMN_CANDIDATES if c in df.columns), None)
+if not id_col:
+    st.error("لم يتم العثور على عمود يحتوي على المعرف (ID). عدّل القائمة ID_COLUMN_CANDIDATES أو اسم العمود في الشيت.")
+    st.stop()
 
-st.write("### الرجاء تعبئة الحقول التالية:")
+# ====== البحث برقم الطلب ======
+st.markdown("### البحث برقم الطلب")
+center = st.columns([1, 3, 1])[1]
+with center:
+    sid = st.text_input("أدخل رقم الطلب:", key="search_id_input")
+    search_btn = st.button("بحث", use_container_width=True)
 
-# --- Form ---
-with st.form("moh_form"):
-    input_id = st.text_input("رقم الطلب (ID)")
+if search_btn:
+    st.session_state.selected_id = (sid or "").strip()
 
-    agree = st.checkbox("موافق")
-    disagree = st.checkbox("غير موافق")
+selected_id = (st.session_state.get("selected_id") or "").strip()
 
-    show_enabled = (disagree and not agree)
-    reason = st.text_area(
-        "سبب الرفض",
-        placeholder="يرجى توضيح سبب الرفض هنا...",
-        disabled=not show_enabled
-    )
+selected_row = None
+if selected_id:
+    mask = df[id_col].astype(str).str.strip().str.lower() == selected_id.lower()
+    match = df[mask]
+    if not match.empty:
+        selected_row = match.iloc[0]
 
-    submitted = st.form_submit_button("إرسال الطلب")
+if search_btn and not selected_id:
+    st.warning("يرجى إدخال رقم الطلب أولاً.")
 
-    if submitted:
-        if not input_id.strip():
-            st.warning("يرجى إدخال رقم الطلب (ID).")
-        elif agree and disagree:
-            st.warning("لا يمكن اختيار الخيارين معاً.")
-        elif not agree and not disagree:
-            st.info("الرجاء اختيار أحد الخيارين قبل الإرسال.")
-        elif disagree and not reason.strip():
+if selected_id and selected_row is None:
+    st.warning("لا توجد نتائج مطابقة لهذا الرقم.")
+    st.stop()
+
+# ====== التحقق من الحالة ======
+if selected_row is not None:
+    if STATE_COLUMN not in selected_row.index:
+        st.error(f"لم يتم العثور على عمود الحالة '{STATE_COLUMN}'.")
+        st.stop()
+
+    current_state = str(selected_row[STATE_COLUMN]).strip()
+    if current_state not in ALLOWED_STATES:
+        st.error(f"لا يمكن متابعة المعالجة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
+        st.stop()
+
+    webhook_url = str(selected_row.get(WEBHOOK_COLUMN, "")).strip()
+    if not is_valid_url(webhook_url):
+        st.warning(f"تعذر العثور على رابط ويب هوك صالح في العمود '{WEBHOOK_COLUMN}'. لن يتم إرسال القرار.")
+        # نسمح بالاختيار لكن بدون إرسال فعلي
+
+    # ====== واجهة القرار ======
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("### القرار")
+
+    if "decision" not in st.session_state:
+        st.session_state.decision = "موافقة"
+    if "reason" not in st.session_state:
+        st.session_state.reason = ""
+
+    with st.container():
+        st.markdown('<div class="segmented">', unsafe_allow_html=True)
+        st.session_state.decision = st.radio(
+            "اختر القرار:",
+            ["موافقة", "غير موافق"],
+            horizontal=True,
+            key="decision_radio_ar",
+            index=0 if st.session_state.decision == "موافقة" else 1,
+            label_visibility="collapsed",
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.session_state.decision == "غير موافق":
+        st.session_state.reason = st.text_area("سبب الرفض (إلزامي):", value=st.session_state.reason, key="reason_ar")
+    else:
+        st.session_state.reason = ""
+
+    submit = st.button("إرسال القرار")
+
+    if submit:
+        if st.session_state.decision == "غير موافق" and not st.session_state.reason.strip():
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
-            # Lookup row by ID
-            df = load_sheet_df(SPREADSHEET_ID, WORKSHEET_NAME)
-            row = find_row_by_id(df, input_id)
-
-            if row is None:
-                st.error("لم يتم العثور على صف يطابق رقم الطلب المدخل.")
-            elif STATE_COLUMN not in row or str(row[STATE_COLUMN]).strip() not in ALLOWED_STATES:
-                current_state = str(row.get(STATE_COLUMN, "")).strip() if STATE_COLUMN in row else "غير معروف"
-                st.error(f"لا يمكن الإرسال. الحالة الحالية: {current_state} (المسموح: Approved أو Declined)")
+            payload = {
+                "id": selected_id,
+                "decision": st.session_state.decision,         # "موافقة" أو "غير موافق"
+                "reason": st.session_state.reason.strip(),     # قد تكون فارغة
+                "state_checked": current_state,                # الحالة المعتمدة Approved / Declined
+            }
+            if is_valid_url(webhook_url):
+                try:
+                    r = requests.post(webhook_url, json=payload, timeout=15)
+                    r.raise_for_status()
+                    st.success("✅ تم إرسال القرار بنجاح.")
+                except Exception as e:
+                    st.error(f"❌ تعذر إرسال القرار عبر الويب هوك: {e}")
             else:
-                # Get webhook strictly from Authorize column
-                authorize_value = str(row.get("Authorize", "")).strip()
-                if not is_valid_url(authorize_value):
-                    st.error("تعذر العثور على رابط ويب هوك صالح في عمود Authorize. أضِف رابطاً صحيحاً ثم أعد المحاولة.")
-                else:
-                    choice = "موافق" if agree else "غير موافق"
-                    ts = datetime.now(timezone.utc).isoformat()
-
-                    payload = {
-                        "choice": choice,
-                        "timestamp_utc": ts,
-                        "id": input_id.strip(),
-                        "authorize": authorize_value,
-                    }
-                    if disagree:
-                        payload["reason_for_refusal"] = reason.strip()
-
-                    target_url = authorize_value  # <- Authorize is mandatory source now
-
-                    ok, resp_text = False, ""
-                    for i in range(RETRIES):
-                        try:
-                            r = requests.post(target_url, json=payload, timeout=REQUEST_TIMEOUT)
-                            ok, resp_text = r.ok, (r.text or "")
-                            if ok:
-                                break
-                        except Exception as e:
-                            resp_text = str(e)
-                        time.sleep(BACKOFF ** i)
-
-                    if ok:
-                        st.success(f"تم إرسال الطلب بنجاح. تم اختيار: {choice}")
-                        if disagree:
-                            st.caption(f"سبب الرفض: {reason.strip()}")
-                        if resp_text:
-                            st.caption(f"رد الخادم: {resp_text[:300]}")
-                    else:
-                        st.error("تعذر الإرسال إلى الخادم بعد عدة محاولات.")
-                        if resp_text:
-                            st.caption(f"التفاصيل: {resp_text[:300]}")
-
-st.write("---")
-st.caption("© 2025 وزارة الصحة - نظام طلب مشاركة البيانات")
+                st.info("⚠️ لم يتم إرسال القرار لعدم توفر رابط ويب هوك صالح.")
