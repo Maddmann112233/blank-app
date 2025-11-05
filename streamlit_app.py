@@ -5,7 +5,7 @@ import streamlit as st
 from datetime import datetime, timezone
 
 # ================== CONFIG ==================
-DEFAULT_WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"
+DEFAULT_WEBHOOK_URL = "https://tofyz.app.n8n.cloud/webhook-test/moh-form"  # kept, but no longer used if Authorize is required
 REQUEST_TIMEOUT = 10
 RETRIES = 3
 BACKOFF = 1.6
@@ -15,7 +15,7 @@ SPREADSHEET_ID = "1mtlFkp7yAMh8geFF1cfcyruYJhcafsetJktOhwTZz1Y"
 WORKSHEET_NAME = "Sheet1"
 ID_COLUMN = "id"
 STATE_COLUMN = "State"
-ALLOWED_STATES = ["Approved", "Declined"]  # ✅ now allows both
+ALLOWED_STATES = ["Approved", "Declined"]
 # ============================================
 
 st.set_page_config(
@@ -45,7 +45,7 @@ def qp_get_one(name: str):
     v = qp[name]
     return v[0] if isinstance(v, list) else v
 
-# Read resume URL (optional)
+# Read resume URL (optional) — retained but no longer used as fallback
 resume_param = qp_get_one("resume") or qp_get_one("resumeUrl")
 resume_url = None
 if resume_param:
@@ -100,9 +100,9 @@ st.markdown("<h3 style='text-align:center;'>MOH Data Request Form</h3>", unsafe_
 st.write("---")
 
 if resume_url:
-    st.caption("سيتم الإرسال تلقائياً إلى رابط الاستئناف (resumeUrl) من n8n إن لم تُدخل رابطاً يدوياً.")
+    st.caption("سيتم تجاهل رابط الاستئناف إذا وُجد رابط صالح في عمود Authorize.")
 else:
-    st.caption("يمكنك إدخال معرّف الطلب (ID) أدناه وسيتم التحقق من الحالة قبل الإرسال.")
+    st.caption("أدخل رقم الطلب (ID). سيتم استخدام رابط الويب هوك من عمود Authorize في ورقة Google.")
 
 st.write("### الرجاء تعبئة الحقول التالية:")
 
@@ -132,6 +132,7 @@ with st.form("moh_form"):
         elif disagree and not reason.strip():
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
+            # Lookup row by ID
             df = load_sheet_df(SPREADSHEET_ID, WORKSHEET_NAME)
             row = find_row_by_id(df, input_id)
 
@@ -139,29 +140,27 @@ with st.form("moh_form"):
                 st.error("لم يتم العثور على صف يطابق رقم الطلب المدخل.")
             elif STATE_COLUMN not in row or str(row[STATE_COLUMN]).strip() not in ALLOWED_STATES:
                 current_state = str(row.get(STATE_COLUMN, "")).strip() if STATE_COLUMN in row else "غير معروف"
-                st.error(f"لا يمكن الإرسال. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined)")
+                st.error(f"لا يمكن الإرسال. الحالة الحالية: {current_state} (المسموح: Approved أو Declined)")
             else:
-                choice = "موافق" if agree else "غير موافق"
-                ts = datetime.now(timezone.utc).isoformat()
+                # Get webhook strictly from Authorize column
                 authorize_value = str(row.get("Authorize", "")).strip()
-
-                payload = {
-                    "choice": choice,
-                    "timestamp_utc": ts,
-                    "id": input_id.strip(),
-                    "authorize": authorize_value,
-                }
-                if disagree:
-                    payload["reason_for_refusal"] = reason.strip()
-
-                if is_valid_url(authorize_value):
-                    target_url = authorize_value
+                if not is_valid_url(authorize_value):
+                    st.error("تعذر العثور على رابط ويب هوك صالح في عمود Authorize. أضِف رابطاً صحيحاً ثم أعد المحاولة.")
                 else:
-                    target_url = resume_url or DEFAULT_WEBHOOK_URL
+                    choice = "موافق" if agree else "غير موافق"
+                    ts = datetime.now(timezone.utc).isoformat()
 
-                if not target_url:
-                    st.error("لم يتم تحديد أي رابط للإرسال.")
-                else:
+                    payload = {
+                        "choice": choice,
+                        "timestamp_utc": ts,
+                        "id": input_id.strip(),
+                        "authorize": authorize_value,
+                    }
+                    if disagree:
+                        payload["reason_for_refusal"] = reason.strip()
+
+                    target_url = authorize_value  # <- Authorize is mandatory source now
+
                     ok, resp_text = False, ""
                     for i in range(RETRIES):
                         try:
