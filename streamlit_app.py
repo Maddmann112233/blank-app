@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 import gspread
 import requests
+import base64
 from urllib.parse import urlparse
 from google.oauth2.service_account import Credentials
 
@@ -21,6 +22,30 @@ ALLOWED_STATES = {"approved", "declined"}
 # ===========================================
 
 st.set_page_config(page_title="MOH Business Owner", layout="wide")
+
+# ====== خلفية مخصصة ======
+def set_background(png_file):
+    """Set a custom background image from local file."""
+    with open(png_file, "rb") as f:
+        data = f.read()
+    encoded = base64.b64encode(data).decode()
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ضع نفس اسم الصورة كما في مستودع GitHub
+set_background("ChatGPT Image Nov 9, 2025, 02_38_42 AM.png")
 
 # ====== تنسيق عربي ======
 st.markdown("""
@@ -57,7 +82,7 @@ def _gspread_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=30)  # تقليل التخزين المؤقت لتحديث البيانات بسرعة
+@st.cache_data(ttl=30)
 def load_sheet(spreadsheet_id, worksheet_name) -> pd.DataFrame:
     gc = _gspread_client()
     ws = gc.open_by_key(spreadsheet_id).worksheet(worksheet_name)
@@ -74,11 +99,6 @@ def is_valid_url(s: str) -> bool:
         return False
 
 def resolve_column(df: pd.DataFrame, wanted_lower: str, fallback_candidates=None):
-    """
-    يعيد الاسم الفعلي لعمود (كما في DataFrame) بمطابقة غير حساسة لحالة الأحرف.
-    إذا قدمت قائمة candidates، سيتم قبول أي اسم منها (كلها يجب أن تكون بحروف صغيرة).
-    """
-    # خريطة من lower -> original
     lower_map = {c.strip().lower(): c for c in df.columns}
     if fallback_candidates:
         for cand in fallback_candidates:
@@ -94,13 +114,12 @@ if df.empty:
     st.error("ورقة العمل فارغة أو لم تُحمّل البيانات.")
     st.stop()
 
-# تحديد عمود ID غير حساس لحالة الأحرف
+# تحديد الأعمدة
 id_col = resolve_column(df, None, fallback_candidates=[c.lower() for c in ID_COLUMN_CANDIDATES])
 if not id_col:
     st.error(f"لم يتم العثور على عمود المعرّف. تأكد من وجود أحد هذه الأعمدة: {ID_COLUMN_CANDIDATES}")
     st.stop()
 
-# تحديد عمود الحالة وعمود الويب هوك بشكل غير حساس لحالة الأحرف
 state_col = resolve_column(df, STATE_COLUMN_WANTED)
 webhook_col = resolve_column(df, WEBHOOK_COLUMN_WANTED)
 
@@ -118,17 +137,14 @@ with center:
     sid = st.text_input("أدخل رقم الطلب:", key="search_id_input")
     search_btn = st.button("بحث", use_container_width=True)
 
-# عند الضغط على بحث نخزّن القيمة ونحمّل نسخة حديثة من الشيت
 if search_btn:
     st.session_state.selected_id = (sid or "").strip()
-    st.cache_data.clear()  # نضمن تحديث القراءة في البحث التالي
+    st.cache_data.clear()
     df = load_sheet(SPREADSHEET_ID, WORKSHEET_NAME)
 
 selected_id = (st.session_state.get("selected_id") or "").strip()
-
 selected_row = None
 if selected_id:
-    # مطابقة ID بعد تنظيف المسافات وحساسية لحروف صغيرة
     mask = df[id_col].astype(str).str.strip().str.lower() == selected_id.lower()
     match = df[mask]
     if not match.empty:
@@ -143,19 +159,16 @@ if selected_id and selected_row is None:
 
 # ====== التحقق ثم الواجهة ======
 if selected_row is not None:
-    # التحقق من الحالة
     current_state = str(selected_row[state_col]).strip()
     if current_state.lower() not in ALLOWED_STATES:
         st.error(f"لا يمكن المتابعة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
         st.stop()
 
-    # قراءة الويب هوك من عمود Authorize (غير حساس لحالة الأحرف)
     webhook_url = str(selected_row[webhook_col]).strip()
     if not is_valid_url(webhook_url):
         st.error(f"القيمة في عمود {webhook_col} ليست رابط ويب هوك صالحاً.")
         st.stop()
 
-    # واجهة القرار فقط
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("### القرار")
 
@@ -188,10 +201,10 @@ if selected_row is not None:
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
             payload = {
-                "id": selected_id,                       # من عمود ID
-                "decision": st.session_state.decision,   # "موافقة" أو "غير موافق"
+                "id": selected_id,
+                "decision": st.session_state.decision,
                 "reason": st.session_state.reason.strip(),
-                "state_checked": current_state,          # الحالة في الشيت (Approved/Declined)
+                "state_checked": current_state,
             }
             try:
                 r = requests.post(webhook_url, json=payload, timeout=15)
