@@ -38,38 +38,125 @@ def set_background(png_file):
             background-position: center;
             background-attachment: fixed;
             background-repeat: no-repeat;
+            color: #E8FFFA;
         }}
+        /* subtle dark overlay for readability */
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(60% 80% at 70% 30%, rgba(5,60,60,.25) 0%, rgba(5,30,32,.55) 100%);
+            pointer-events: none;
+            z-index: 0;
+        }}
+        /* color tokens from the background */
+        :root {{
+            --teal: #0FB39B;        /* primary (picked from image mid-tone) */
+            --teal-2: #12D1C1;      /* accent/hover */
+            --teal-dark: #0A6E66;   /* darker edge */
+            --mint: #A6EEE1;        /* light accents */
+            --glass: rgba(6, 33, 36, 0.35);
+            --glass-border: rgba(166, 238, 225, 0.25);
+            --text: #E8FFFA;
+            --muted: #CFF7EF;
+        }}
+        /* glass card look */
+        .block-container {{
+            padding-top: 24px;
+            position: relative;
+            z-index: 1;
+        }}
+        .block-container > :not(style) {{
+            backdrop-filter: blur(6px);
+        }}
+        /* headers */
+        h1, h2, h3, h4 {{
+            color: var(--mint) !important;
+            text-shadow: 0 1px 12px rgba(0,0,0,.25);
+            text-align: center;
+        }}
+
+        /* buttons */
+        .stButton>button {{
+            background: linear-gradient(135deg, var(--teal), var(--teal-2));
+            color: #fff;
+            font-weight: 700;
+            border: 0;
+            border-radius: 14px;
+            height: 44px;
+            padding: 0 22px;
+            box-shadow: 0 10px 25px rgba(15, 179, 155, .25), inset 0 0 0 1px rgba(255,255,255,.08);
+            transition: transform .06s ease, box-shadow .2s ease, filter .2s ease;
+        }}
+        .stButton>button:hover {{
+            filter: brightness(1.05);
+            box-shadow: 0 14px 30px rgba(18, 209, 193, .28);
+        }}
+        .stButton>button:active {{
+            transform: translateY(1px) scale(.99);
+        }}
+
+        /* inputs */
+        .stTextInput>div>div>input,
+        .stTextArea textarea {{
+            background: var(--glass);
+            color: var(--text);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            text-align: center;
+        }}
+        .stTextInput>div>div>input:focus,
+        .stTextArea textarea:focus {{
+            outline: none;
+            border-color: var(--mint);
+            box-shadow: 0 0 0 3px rgba(18, 209, 193, .25);
+        }}
+
+        /* segmented radio (Arabic) */
+        .segmented .stRadio > div {{
+            display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+        }}
+        .segmented .stRadio label {{
+            padding: 10px 18px;
+            border: 1px solid var(--glass-border);
+            border-radius: 999px;
+            cursor: pointer; font-weight: 700; user-select: none;
+            background: var(--glass);
+            color: var(--text);
+        }}
+        .segmented .stRadio input {{ display: none; }}
+        .segmented .stRadio [aria-checked="true"] + span {{
+            background: linear-gradient(135deg, var(--teal), var(--teal-2));
+            color: #fff; border-color: transparent;
+            box-shadow: 0 6px 16px rgba(18, 209, 193, .25);
+        }}
+        .segmented .stRadio label:hover {{
+            border-color: var(--mint);
+        }}
+
+        /* alerts */
+        .stAlert>div {{
+            background: rgba(6, 33, 36, 0.55);
+            color: var(--text);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+        }}
+
+        /* tables (if any appear) */
+        .stDataFrame, .stTable {{
+            background: rgba(6, 33, 36, 0.45) !important;
+            border-radius: 12px !important;
+        }}
+
+        /* overall direction & font */
+        body, .stApp {{ direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
-# ضع نفس اسم الصورة كما في مستودع GitHub
+# نفس اسم الصورة في المستودع
 set_background("ChatGPT Image Nov 9, 2025, 02_38_42 AM.png")
-
-# ====== تنسيق عربي ======
-st.markdown("""
-<style>
-body, .stApp { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
-h1, h2, h3, h4 { text-align: center; }
-.stButton>button {
-  background-color:#0A66C2; color:#fff; font-weight:600;
-  border-radius:10px; height:42px; padding:0 18px; border:none;
-}
-.stTextInput>div>div>input { direction: rtl; text-align: center; font-size:16px; }
-.segmented .stRadio > div { display:flex; gap:8px; justify-content:center; }
-.segmented .stRadio label {
-  padding:10px 18px; border:1px solid #2a2f3a; border-radius:999px;
-  cursor:pointer; font-weight:700; user-select:none;
-}
-.segmented .stRadio input { display:none; }
-.segmented .stRadio label:hover { background:#19202a; }
-.segmented .stRadio [aria-checked="true"] + span {
-  background:#0A66C2; color:#fff; border-color:#0A66C2;
-}
-.block-container { padding-top: 24px; }
-</style>
-""", unsafe_allow_html=True)
 
 st.markdown('<h2>MOH Admin</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
 
@@ -194,7 +281,7 @@ if selected_row is not None:
     else:
         st.session_state.reason = ""
 
-    submit = st.button("إرسال القرار")
+    submit = st.button("إرسال القرار", use_container_width=False)
 
     if submit:
         if st.session_state.decision == "غير موافق" and not st.session_state.reason.strip():
