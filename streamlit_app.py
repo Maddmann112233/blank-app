@@ -15,6 +15,7 @@ ID_COLUMN_CANDIDATES = ["id", "request_id", "ticket_id"]
 # أسماء الحقول الأخرى (غير حساسة لحالة الأحرف)
 STATE_COLUMN_WANTED = "state"
 WEBHOOK_COLUMN_WANTED = "authorize"
+REASON_COLUMN_WANTED = "reason"   # <— جديد: سنعرض سبب الطلب من الشيت
 
 # الحالتان المسموحتان
 ALLOWED_STATES = {"approved", "declined"}
@@ -43,6 +44,25 @@ h1, h2, h3, h4 { text-align: center; }
   background:#0A66C2; color:#fff; border-color:#0A66C2;
 }
 .block-container { padding-top: 24px; }
+
+/* شارة الحالة */
+.badge {
+  display:inline-block; padding:8px 14px; border-radius:999px;
+  font-weight:700; font-size:14px; border:1px solid transparent;
+}
+.badge.green { background:#e8f5e9; color:#1b5e20; border-color:#c8e6c9; }
+.badge.red   { background:#ffebee; color:#b71c1c; border-color:#ffcdd2; }
+.badge.gray  { background:#eceff1; color:#37474f; border-color:#cfd8dc; }
+.status-wrap { text-align:center; margin: 8px 0 10px 0; }
+
+/* بطاقة السبب من الشيت */
+.reason-card {
+  background:#fff8e1; border:1px solid #ffe082; color:#5d4037;
+  padding:12px 14px; border-radius:10px; margin: 6px 0 18px 0;
+  line-height:1.6; font-size:15px;
+}
+.reason-title { font-weight:700; margin-left:6px; }
+.muted { color:#78909c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -99,9 +119,10 @@ if not id_col:
     st.error(f"لم يتم العثور على عمود المعرّف. تأكد من وجود أحد هذه الأعمدة: {ID_COLUMN_CANDIDATES}")
     st.stop()
 
-# تحديد عمود الحالة وعمود الويب هوك بشكل غير حساس لحالة الأحرف
-state_col = resolve_column(df, STATE_COLUMN_WANTED)
+# تحديد الأعمدة الأخرى
+state_col   = resolve_column(df, STATE_COLUMN_WANTED)
 webhook_col = resolve_column(df, WEBHOOK_COLUMN_WANTED)
+reason_col  = resolve_column(df, REASON_COLUMN_WANTED)  # قد لا يوجد—لا نوقف التنفيذ
 
 if not state_col:
     st.error(f"لم يتم العثور على عمود الحالة: {STATE_COLUMN_WANTED}")
@@ -142,24 +163,65 @@ if selected_id and selected_row is None:
 
 # ====== التحقق ثم الواجهة ======
 if selected_row is not None:
-    # التحقق من الحالة
+    # عرض الحالة الحالية كشارة
     current_state = str(selected_row[state_col]).strip()
-    if current_state.lower() not in ALLOWED_STATES:
+    state_norm = current_state.lower()
+
+    badge_class = "gray"
+    if state_norm == "approved":
+        badge_class = "green"
+    elif state_norm == "declined":
+        badge_class = "red"
+
+    st.markdown(
+        f"""
+        <div class="status-wrap">
+            <span class="badge {badge_class}">الحالة الحالية: {current_state}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # إظهار سبب الطلب من الشيت (إن وجد)
+    if reason_col:
+        reason_from_sheet = str(selected_row.get(reason_col, "")).strip()
+        shown_text = reason_from_sheet if reason_from_sheet else "(لا يوجد سبب مسجل)"
+        st.markdown(
+            f"""
+            <div class="reason-card">
+                <span class="reason-title">السبب من الشيت:</span> {shown_text}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            """
+            <div class="reason-card">
+                <span class="reason-title">السبب من الشيت:</span>
+                <span class="muted">عمود "reason" غير موجود في ورقة العمل.</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # التحقق من السماحية بالمتابعة
+    if state_norm not in ALLOWED_STATES:
         st.error(f"لا يمكن المتابعة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
         st.stop()
 
-    # قراءة الويب هوك من عمود Authorize (غير حساس لحالة الأحرف)
+    # قراءة الويب هوك
     webhook_url = str(selected_row[webhook_col]).strip()
     if not is_valid_url(webhook_url):
         st.error(f"القيمة في عمود {webhook_col} ليست رابط ويب هوك صالحاً.")
         st.stop()
 
-    # واجهة القرار فقط
+    # واجهة القرار
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("### القرار")
 
     if "decision" not in st.session_state:
-        st.session_state.decision = "موافقة"
+        st.session_state.decision = "موافقة"  # قيمة داخلية لتحديد index فقط
     if "reason" not in st.session_state:
         st.session_state.reason = ""
 
@@ -188,7 +250,7 @@ if selected_row is not None:
         else:
             payload = {
                 "id": selected_id,                       # من عمود ID
-                "decision": st.session_state.decision,   # "موافقة" أو "غير موافق"
+                "decision": st.session_state.decision,   # "موافق" أو "غير موافق"
                 "reason": st.session_state.reason.strip(),
                 "state_checked": current_state,          # الحالة في الشيت (Approved/Declined)
             }
