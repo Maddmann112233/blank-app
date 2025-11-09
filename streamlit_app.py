@@ -383,6 +383,26 @@ if selected_row is not None:
             try:
                 r = requests.post(webhook_url, json=payload, timeout=15)
                 r.raise_for_status()
-                st.success("تم إرسال القرار بنجاح.")
+                
+                # Check if response contains success indicator
+                try:
+                    response_data = r.json()
+                    if response_data.get("success") == False or response_data.get("error"):
+                        st.error(f"فشل إرسال القرار: {response_data.get('error', 'خطأ غير معروف')}")
+                    else:
+                        st.success("تم إرسال القرار بنجاح.")
+                except:
+                    # If response is not JSON, check status code only
+                    if r.status_code == 200:
+                        st.success("تم إرسال القرار بنجاح.")
+                    else:
+                        st.error(f"فشل إرسال القرار. رمز الحالة: {r.status_code}")
+                        
+            except requests.exceptions.Timeout:
+                st.error("انتهت مهلة الاتصال بالويب هوك. يرجى المحاولة مرة أخرى.")
+            except requests.exceptions.ConnectionError:
+                st.error("تعذر الاتصال بالويب هوك. تحقق من الاتصال بالإنترنت.")
+            except requests.exceptions.HTTPError as e:
+                st.error(f"خطأ HTTP: {e.response.status_code} - {e.response.text[:200]}")
             except Exception as e:
-                st.error(f"تعذر إرسال القرار عبر الويب هوك: {e}")
+                st.error(f"تعذر إرسال القرار: {str(e)}")
