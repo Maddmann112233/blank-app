@@ -23,30 +23,6 @@ ALLOWED_STATES = {"approved", "declined"}
 
 st.set_page_config(page_title="MOH Business Owner", layout="wide")
 
-# ====== خلفية مخصصة ======
-def set_background(png_file):
-    """Set a custom background image from local file."""
-    with open(png_file, "rb") as f:
-        data = f.read()
-    encoded = base64.b64encode(data).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/png;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            background-repeat: no-repeat;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-# ضع نفس اسم الصورة كما في مستودع GitHub
-set_background("ChatGPT Image Nov 9, 2025, 02_38_42 AM.png")
-
 # ====== تنسيق عربي ======
 st.markdown("""
 <style>
@@ -71,7 +47,7 @@ h1, h2, h3, h4 { text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h2>MOH Business Owner</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
+st.markdown('<h2>MOH Admin</h2><h4>نظام مراجعة طلبات مشاركة البيانات</h4>', unsafe_allow_html=True)
 
 # ====== Google Sheets ======
 def _gspread_client():
@@ -99,6 +75,11 @@ def is_valid_url(s: str) -> bool:
         return False
 
 def resolve_column(df: pd.DataFrame, wanted_lower: str, fallback_candidates=None):
+    """
+    يعيد الاسم الفعلي لعمود (كما في DataFrame) بمطابقة غير حساسة لحالة الأحرف.
+    إذا قدمت قائمة candidates، سيتم قبول أي اسم منها (كلها يجب أن تكون بحروف صغيرة).
+    """
+    # خريطة من lower -> original
     lower_map = {c.strip().lower(): c for c in df.columns}
     if fallback_candidates:
         for cand in fallback_candidates:
