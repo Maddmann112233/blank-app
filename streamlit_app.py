@@ -100,18 +100,67 @@ h1, h2, h3, h4 { text-align: center; color:#e9fffa; }
   border:1px solid var(--glass-brd); border-radius:12px;
 }
 
-/* Segmented radio */
-.segmented .stRadio > div { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
-.segmented .stRadio label {
-  padding:10px 18px; border:1px solid var(--glass-brd); border-radius:999px;
-  background: var(--glass-bg); color: var(--ink-100);
-  cursor:pointer; font-weight:800; user-select:none;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+/* Text area styling */
+.stTextArea textarea {
+  direction: rtl; text-align: right; font-size:15px;
+  background: var(--glass-bg) !important; 
+  color: var(--ink-100) !important;
+  border:1px solid var(--glass-brd) !important; 
+  border-radius:12px !important;
 }
-.segmented .stRadio input { display:none; }
-.segmented .stRadio label:hover { background: rgba(16, 94, 86, 0.55); }
-.segmented .stRadio [aria-checked="true"] + span {
-  background: var(--teal-500); color:#052826; border-color: rgba(15,181,156,0.85);
+
+/* ===== FIXED: Radio buttons to match theme ===== */
+/* Hide default radio buttons */
+.stRadio > div[role="radiogroup"] > label > div:first-child {
+  display: none !important;
+}
+
+/* Style the radio container */
+.stRadio > div[role="radiogroup"] {
+  display: flex !important;
+  gap: 12px !important;
+  justify-content: center !important;
+  flex-wrap: wrap !important;
+  padding: 8px 0 !important;
+}
+
+/* Style each radio label as a pill button */
+.stRadio > div[role="radiogroup"] > label {
+  padding: 12px 24px !important;
+  border: 1px solid var(--glass-brd) !important;
+  border-radius: 999px !important;
+  background: var(--glass-bg) !important;
+  color: var(--ink-100) !important;
+  cursor: pointer !important;
+  font-weight: 700 !important;
+  user-select: none !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+  transition: all 0.2s ease !important;
+  margin: 0 !important;
+  min-width: 120px !important;
+  text-align: center !important;
+}
+
+/* Hover state */
+.stRadio > div[role="radiogroup"] > label:hover {
+  background: rgba(16, 94, 86, 0.65) !important;
+  border-color: rgba(90, 210, 195, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Selected state - using aria-checked or data attributes */
+.stRadio > div[role="radiogroup"] > label:has(input:checked),
+.stRadio > div[role="radiogroup"] > label[data-checked="true"] {
+  background: var(--teal-500) !important;
+  color: #052826 !important;
+  border-color: rgba(15,181,156,0.85) !important;
+  box-shadow: 0 6px 20px rgba(15,181,156,0.35) !important;
+  font-weight: 900 !important;
+}
+
+/* Remove any default streamlit radio styling */
+.stRadio > div {
+  background: transparent !important;
 }
 
 /* ===== Status badge themed to teal network ===== */
@@ -301,21 +350,18 @@ if selected_row is not None:
     st.markdown("### القرار")
 
     if "decision" not in st.session_state:
-        st.session_state.decision = "موافقة"  # قيمة داخلية لتحديد index فقط
+        st.session_state.decision = "موافق"
     if "reason" not in st.session_state:
         st.session_state.reason = ""
 
-    with st.container():
-        st.markdown('<div class="segmented">', unsafe_allow_html=True)
-        st.session_state.decision = st.radio(
-            "اختر القرار:",
-            ["موافق", "غير موافق"],
-            horizontal=True,
-            key="decision_radio_ar",
-            index=0 if st.session_state.decision == "موافقة" else 1,
-            label_visibility="collapsed",
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Radio buttons with proper styling
+    st.session_state.decision = st.radio(
+        "اختر القرار:",
+        ["موافق", "غير موافق"],
+        horizontal=True,
+        key="decision_radio_ar",
+        index=0 if st.session_state.decision == "موافق" else 1,
+    )
 
     if st.session_state.decision == "غير موافق":
         st.session_state.reason = st.text_area("سبب الرفض (إلزامي):", value=st.session_state.reason, key="reason_ar")
