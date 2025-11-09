@@ -15,7 +15,7 @@ ID_COLUMN_CANDIDATES = ["id", "request_id", "ticket_id"]
 # أسماء الحقول الأخرى (غير حساسة لحالة الأحرف)
 STATE_COLUMN_WANTED = "state"
 WEBHOOK_COLUMN_WANTED = "authorize"
-REASON_COLUMN_WANTED = "reason"   # <— جديد: سنعرض سبب الطلب من الشيت
+REASON_COLUMN_WANTED = "reason"
 
 # الحالتان المسموحتان
 ALLOWED_STATES = {"approved", "declined"}
@@ -23,46 +23,81 @@ ALLOWED_STATES = {"approved", "declined"}
 
 st.set_page_config(page_title="MOH Admin", layout="wide")
 
-# ====== تنسيق عربي ======
+# ====== تنسيق عربي + ثيم مظلم أنيق ======
 st.markdown("""
 <style>
+/* Base RTL */
 body, .stApp { direction: rtl; text-align: right; font-family: Tahoma, Arial, sans-serif; }
 h1, h2, h3, h4 { text-align: center; }
+.block-container { padding-top: 24px; }
+
+/* Buttons */
 .stButton>button {
   background-color:#0A66C2; color:#fff; font-weight:600;
   border-radius:10px; height:42px; padding:0 18px; border:none;
 }
+
+/* Inputs */
 .stTextInput>div>div>input { direction: rtl; text-align: center; font-size:16px; }
+
+/* Segmented radio */
 .segmented .stRadio > div { display:flex; gap:8px; justify-content:center; }
 .segmented .stRadio label {
-  padding:10px 18px; border:1px solid #2a2f3a; border-radius:999px;
+  padding:10px 18px; border:1px solid #2f3540; border-radius:999px;
   cursor:pointer; font-weight:700; user-select:none;
+  background: #141921; color:#dbe3ee;
 }
 .segmented .stRadio input { display:none; }
-.segmented .stRadio label:hover { background:#19202a; }
+.segmented .stRadio label:hover { background:#192230; }
 .segmented .stRadio [aria-checked="true"] + span {
   background:#0A66C2; color:#fff; border-color:#0A66C2;
 }
-.block-container { padding-top: 24px; }
 
-/* شارة الحالة */
-.badge {
-  display:inline-block; padding:8px 14px; border-radius:999px;
-  font-weight:700; font-size:14px; border:1px solid transparent;
-}
-.badge.green { background:#e8f5e9; color:#1b5e20; border-color:#c8e6c9; }
-.badge.red   { background:#ffebee; color:#b71c1c; border-color:#ffcdd2; }
-.badge.gray  { background:#eceff1; color:#37474f; border-color:#cfd8dc; }
+/* ===== Status badge (Dark-first) ===== */
 .status-wrap { text-align:center; margin: 8px 0 10px 0; }
-
-/* بطاقة السبب من الشيت */
-.reason-card {
-  background:#fff8e1; border:1px solid #ffe082; color:#5d4037;
-  padding:12px 14px; border-radius:10px; margin: 6px 0 18px 0;
-  line-height:1.6; font-size:15px;
+.badge {
+  display:inline-block; padding:8px 16px; border-radius:999px;
+  font-weight:800; font-size:14px; border:1px solid transparent;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset;
 }
-.reason-title { font-weight:700; margin-left:6px; }
-.muted { color:#78909c; }
+.badge.green {
+  background: rgba(32, 83, 54, 0.35);
+  color:#b6f0cf; border-color: rgba(46, 160, 67, 0.45);
+}
+.badge.red {
+  background: rgba(120, 32, 32, 0.35);
+  color:#ffb4b4; border-color: rgba(190, 70, 70, 0.55);
+}
+.badge.gray {
+  background: rgba(60, 70, 84, 0.35);
+  color:#e6edf3; border-color: rgba(120, 130, 150, 0.45);
+}
+
+/* ===== Reason card (Dark-first) ===== */
+.reason-card {
+  background:#131921; border:1px solid #283244; color:#e6edf3;
+  padding:14px 16px; border-radius:14px; margin: 8px 0 20px 0;
+  line-height:1.7; font-size:15px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+.reason-title { font-weight:800; margin-left:6px; color:#a8c7ff; }
+.muted { color:#93a1ad; }
+
+/* Light theme fallback */
+@media (prefers-color-scheme: light) {
+  .segmented .stRadio label { background:#f6f8fa; color:#1f2328; border-color:#d0d7de; }
+  .segmented .stRadio label:hover { background:#eef2f6; }
+
+  .badge.green { background:#e8f5e9; color:#1b5e20; border-color:#c8e6c9; }
+  .badge.red   { background:#ffebee; color:#b71c1c; border-color:#ffcdd2; }
+  .badge.gray  { background:#eceff1; color:#37474f; border-color:#cfd8dc; }
+
+  .reason-card {
+    background:#fffdf4; border-color:#ffe082; color:#5d4037;
+    box-shadow: none;
+  }
+  .reason-title { color:#5d4037; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -77,7 +112,7 @@ def _gspread_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=30)  # تقليل التخزين المؤقت لتحديث البيانات بسرعة
+@st.cache_data(ttl=30)
 def load_sheet(spreadsheet_id, worksheet_name) -> pd.DataFrame:
     gc = _gspread_client()
     ws = gc.open_by_key(spreadsheet_id).worksheet(worksheet_name)
@@ -94,10 +129,6 @@ def is_valid_url(s: str) -> bool:
         return False
 
 def resolve_column(df: pd.DataFrame, wanted_lower: str, fallback_candidates=None):
-    """
-    يعيد الاسم الفعلي لعمود (كما في DataFrame) بمطابقة غير حساسة لحالة الأحرف.
-    إذا قدمت قائمة candidates، سيتم قبول أي اسم منها (كلها يجب أن تكون بحروف صغيرة).
-    """
     lower_map = {c.strip().lower(): c for c in df.columns}
     if fallback_candidates:
         for cand in fallback_candidates:
@@ -113,16 +144,16 @@ if df.empty:
     st.error("ورقة العمل فارغة أو لم تُحمّل البيانات.")
     st.stop()
 
-# تحديد عمود ID غير حساس لحالة الأحرف
+# ID
 id_col = resolve_column(df, None, fallback_candidates=[c.lower() for c in ID_COLUMN_CANDIDATES])
 if not id_col:
     st.error(f"لم يتم العثور على عمود المعرّف. تأكد من وجود أحد هذه الأعمدة: {ID_COLUMN_CANDIDATES}")
     st.stop()
 
-# تحديد الأعمدة الأخرى
+# Columns
 state_col   = resolve_column(df, STATE_COLUMN_WANTED)
 webhook_col = resolve_column(df, WEBHOOK_COLUMN_WANTED)
-reason_col  = resolve_column(df, REASON_COLUMN_WANTED)  # قد لا يوجد—لا نوقف التنفيذ
+reason_col  = resolve_column(df, REASON_COLUMN_WANTED)
 
 if not state_col:
     st.error(f"لم يتم العثور على عمود الحالة: {STATE_COLUMN_WANTED}")
@@ -138,17 +169,15 @@ with center:
     sid = st.text_input("أدخل رقم الطلب:", key="search_id_input")
     search_btn = st.button("بحث", use_container_width=True)
 
-# عند الضغط على بحث نخزّن القيمة ونحمّل نسخة حديثة من الشيت
 if search_btn:
     st.session_state.selected_id = (sid or "").strip()
-    st.cache_data.clear()  # نضمن تحديث القراءة في البحث التالي
+    st.cache_data.clear()
     df = load_sheet(SPREADSHEET_ID, WORKSHEET_NAME)
 
 selected_id = (st.session_state.get("selected_id") or "").strip()
 
 selected_row = None
 if selected_id:
-    # مطابقة ID بعد تنظيف المسافات وحساسية لحروف صغيرة
     mask = df[id_col].astype(str).str.strip().str.lower() == selected_id.lower()
     match = df[mask]
     if not match.empty:
@@ -163,33 +192,37 @@ if selected_id and selected_row is None:
 
 # ====== التحقق ثم الواجهة ======
 if selected_row is not None:
-    # عرض الحالة الحالية كشارة
     current_state = str(selected_row[state_col]).strip()
     state_norm = current_state.lower()
 
+    # Badge color by state
     badge_class = "gray"
     if state_norm == "approved":
         badge_class = "green"
     elif state_norm == "declined":
         badge_class = "red"
 
+    # Keep the English word LTR inside Arabic sentence
     st.markdown(
         f"""
         <div class="status-wrap">
-            <span class="badge {badge_class}">الحالة الحالية: {current_state}</span>
+            <span class="badge {badge_class}">
+                الحالة الحالية: <span dir="ltr">{current_state}</span>
+            </span>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # إظهار سبب الطلب من الشيت (إن وجد)
+    # Reason card (auto-direction for mixed AR/EN)
     if reason_col:
         reason_from_sheet = str(selected_row.get(reason_col, "")).strip()
         shown_text = reason_from_sheet if reason_from_sheet else "(لا يوجد سبب مسجل)"
         st.markdown(
             f"""
             <div class="reason-card">
-                <span class="reason-title">السبب من الشيت:</span> {shown_text}
+                <span class="reason-title">السبب من الشيت:</span>
+                <span style="direction:auto; unicode-bidi: plaintext;">{shown_text}</span>
             </div>
             """,
             unsafe_allow_html=True
@@ -205,12 +238,10 @@ if selected_row is not None:
             unsafe_allow_html=True
         )
 
-    # التحقق من السماحية بالمتابعة
     if state_norm not in ALLOWED_STATES:
         st.error(f"لا يمكن المتابعة. الحالة الحالية: {current_state} (المطلوب: Approved أو Declined).")
         st.stop()
 
-    # قراءة الويب هوك
     webhook_url = str(selected_row[webhook_col]).strip()
     if not is_valid_url(webhook_url):
         st.error(f"القيمة في عمود {webhook_col} ليست رابط ويب هوك صالحاً.")
@@ -221,7 +252,7 @@ if selected_row is not None:
     st.markdown("### القرار")
 
     if "decision" not in st.session_state:
-        st.session_state.decision = "موافقة"  # قيمة داخلية لتحديد index فقط
+        st.session_state.decision = "موافقة"
     if "reason" not in st.session_state:
         st.session_state.reason = ""
 
@@ -249,10 +280,10 @@ if selected_row is not None:
             st.warning("يرجى كتابة سبب الرفض قبل الإرسال.")
         else:
             payload = {
-                "id": selected_id,                       # من عمود ID
+                "id": selected_id,
                 "decision": st.session_state.decision,   # "موافق" أو "غير موافق"
                 "reason": st.session_state.reason.strip(),
-                "state_checked": current_state,          # الحالة في الشيت (Approved/Declined)
+                "state_checked": current_state,          # Approved/Declined
             }
             try:
                 r = requests.post(webhook_url, json=payload, timeout=15)
