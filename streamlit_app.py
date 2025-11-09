@@ -317,7 +317,7 @@ if selected_row is not None:
         st.markdown(
             f"""
             <div class="reason-card">
-                <span class="reason-title">السبب من الشيت:</span>
+                <span class="reason-title">السبب :</span>
                 <span style="direction:auto; unicode-bidi: plaintext;">{shown_text}</span>
             </div>
             """,
@@ -327,7 +327,7 @@ if selected_row is not None:
         st.markdown(
             """
             <div class="reason-card">
-                <span class="reason-title">السبب من الشيت:</span>
+                <span class="reason-title">السبب:</span>
                 <span class="muted">عمود "reason" غير موجود في ورقة العمل.</span>
             </div>
             """,
